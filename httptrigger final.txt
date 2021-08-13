@@ -1,0 +1,63 @@
+using namespace System.Net
+
+# Input bindings are passed in via param block.
+param($Request, $TriggerMetadata)
+
+# Write to the Azure Functions log stream.
+Write-Host "PowerShell HTTP trigger function processed a request."
+
+# Interact with query parameters or the body of the request.
+$name = $Request.Query.Name
+if (-not $name) {
+    $name = $Request.Body.Name
+}
+
+$body = "This HTTP triggered function executed successfully. Pass a name in the query string or in the request body for a personalized response."
+
+if ($name) {
+    $body = "Hello, $name. This HTTP triggered function executed successfully."
+}
+
+# Associate values to output bindings by calling 'Push-OutputBinding'.
+Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+    StatusCode = [HttpStatusCode]::OK
+    Body = $body
+})
+
+Import-Module Az.Storage
+
+$outputFile = $name
+
+$FunctionName = 'TimerTrigger'
+$ModuleName = 'MSOnline'
+$ModuleVersion = '1.1.183.57'
+$username = $Env:user2
+$pw = $Env:password2
+
+# Build Credentials
+$keypath1 = "D:\home\site\wwwroot\$FunctionName\bin\keys\PassEncryptKeyAzure.key"
+$secpassword = $pw | ConvertTo-SecureString -Key (Get-Content $keypath1)
+$pscredential = New-Object System.Management.Automation.PSCredential ($username, $secpassword)
+$tenantId = '1cc2f5af-92fa-4b2a-ac02-b97a9c8a75d3'
+Connect-AzAccount -Credential $pscredential -Tenant $tenantId 
+
+$storageAccountRG = "O365Auditlogs"
+$storageAccountName = "o365storageaccount12"
+$ContainerName = "o365container"
+$storageAccountKey = (Get-AzStorageAccountKey -ResourceGroupName $storageAccountRG -AccountName $storageAccountName).Value[0]
+$ctx = New-AzStorageContext -StorageAccountName $storageAccountName -StorageAccountKey $storageAccountKey
+Set-AzStorageBlobContent -Container $ContainerName -File $outputFile -Blob $outputFile -Context $ctx -Force
+
+Write-Host "Uploaded to Blob Storage" -foregroundColor Yellow
+
+$blob = Get-AzStorageBlob -Blob $outputFile -Container $ContainerName -Context $ctx -ErrorAction Ignore
+
+if (-not $blob)
+{
+    Write-Host "Blob Not Found"
+}
+else 
+{
+    Write-Host "Blob Found"
+    Remove-Item -Path "D:\home\site\wwwroot\$outputFile"
+}
